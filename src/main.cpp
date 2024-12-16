@@ -14,6 +14,9 @@ unsigned long blinkInterval = 0; // Default no blinking
 bool ledState = false; // LED state for blinking
 unsigned long previousMillis = 0; // Store the time for blinking
 
+String inputBuffer = ""; // To accumulate input until a full command is received
+
+
 // Enum for states
 enum State {
   MAIN_MENU,
@@ -21,6 +24,9 @@ enum State {
   BLINKING_MENU,
   EXIT
 };
+
+// function prototypes
+void processCommand(String command);
 
 State currentState = MAIN_MENU; // Initial state
 
@@ -87,10 +93,12 @@ void handleMainMenu(char input) {
 
     case '3': // Set LED Brightness
       currentState = BRIGHTNESS_MENU; // Transition to brightness menu
+      printBrightnessMenu(); // Display the brightness menu
       return; // Early return to avoid fall-through
 
     case '4': // Set LED Blinking Sequence
       currentState = BLINKING_MENU; // Transition to blinking menu
+      printBlinkingMenu(); // Display the blinking menu
       return; // Early return to avoid fall-through
 
     case '5': // Exit
@@ -136,6 +144,7 @@ void handleBrightnessMenu(char input) {
 
     case '4': // Go back to Main Menu
       currentState = MAIN_MENU; // Transition back to main menu
+      printMainMenu(); // Display the main menu
       return; // Early return to avoid fall-through
 
     default:
@@ -175,6 +184,7 @@ void handleBlinkingMenu(char input) {
 
     case '5': // Go back to Main Menu
       currentState = MAIN_MENU; // Transition back to main menu
+      printMainMenu(); // Display the main menu
       return; // Early return to avoid fall-through
 
     default:
@@ -185,20 +195,37 @@ void handleBlinkingMenu(char input) {
 }
 
 void loop() {
-  if (SerialBT.available()) {
-    char receivedChar = SerialBT.read(); // Read the received character
+    // Check if data is available from Bluetooth
+  while (SerialBT.available()) {
+    char receivedChar = SerialBT.read(); // Read one character
 
+    // Accumulate input in buffer
+    if (receivedChar == '\r' || receivedChar == '\n') {
+      // End of input detected
+      if (inputBuffer.length() > 0) {
+        // Process the full command
+        processCommand(inputBuffer);
+        inputBuffer = ""; // Clear the buffer after processing
+      }
+    } else {
+      inputBuffer += receivedChar; // Add the character to the buffer
+    }
+  }
+/*
     // Handle input based on the current state
     switch (currentState) {
       case MAIN_MENU:
+        
         handleMainMenu(receivedChar);
         break;
 
       case BRIGHTNESS_MENU:
+
         handleBrightnessMenu(receivedChar);
         break;
 
       case BLINKING_MENU:
+        
         handleBlinkingMenu(receivedChar);
         break;
 
@@ -209,7 +236,7 @@ void loop() {
       default:
         break;
     }
-  }
+  }*/
 
   // Handle blinking if enabled
   if (blinkInterval > 0) {
@@ -219,5 +246,37 @@ void loop() {
       ledState = !ledState; // Toggle LED state
       ledcWrite(pwmChannel, ledState ? ledBrightness : 0); // Apply LED state
     }
+  }
+}
+
+void processCommand(String command) {
+  command.trim(); // Remove any leading/trailing whitespace or newlines
+
+  if (command.length() == 1) {
+    char input = command[0]; // Get the first character of the command
+
+    // Handle input based on the current state
+    switch (currentState) {
+      case MAIN_MENU:
+        handleMainMenu(input);
+        break;
+
+      case BRIGHTNESS_MENU:
+        handleBrightnessMenu(input);
+        break;
+
+      case BLINKING_MENU:
+        handleBlinkingMenu(input);
+        break;
+
+      case EXIT:
+        SerialBT.println("Exiting...");
+        return; // Exit the program
+
+      default:
+        break;
+    }
+  } else {
+    SerialBT.println("Invalid input. Please enter a valid option.");
   }
 }
