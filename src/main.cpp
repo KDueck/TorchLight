@@ -1,6 +1,8 @@
+#include <Arduino.h>
 #include <BluetoothSerial.h>
 
 BluetoothSerial SerialBT;
+
 
 // LED Pin and PWM setup
 const int ledPin = 2; // Onboard LED pin
@@ -16,7 +18,6 @@ unsigned long previousMillis = 0; // Store the time for blinking
 
 String inputBuffer = ""; // To accumulate input until a full command is received
 
-
 // Enum for states
 enum State {
   MAIN_MENU,
@@ -27,8 +28,14 @@ enum State {
 
 // function prototypes
 void processCommand(String command);
+void handleMainMenu(char input);
+void handleBrightnessMenu(char input);
+void handleBlinkingMenu(char input);
 
 State currentState = MAIN_MENU; // Initial state
+
+TaskHandle_t bluetoothTaskHandle = NULL;
+TaskHandle_t ledTaskHandle = NULL;
 
 // Function to print the main menu
 void printMainMenu() {
@@ -61,6 +68,41 @@ void printBlinkingMenu() {
   SerialBT.print("Select an option: ");
 }
 
+void bluetoothTask(void *pvParameters) {
+  while (true) {
+    while (SerialBT.available()) {
+      char receivedChar = SerialBT.read(); // Read one character
+
+      // Accumulate input in buffer
+      if (receivedChar == '\r' || receivedChar == '\n') {
+        // End of input detected
+        if (inputBuffer.length() > 0) {
+          // Process the full command
+          processCommand(inputBuffer);
+          inputBuffer = ""; // Clear the buffer after processing
+        }
+      } else {
+        inputBuffer += receivedChar; // Add the character to the buffer
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void ledTask(void *pvParameters) {
+  while (true) {
+    if (blinkInterval > 0) {
+      unsigned long currentMillis = millis();
+      if (currentMillis - previousMillis >= blinkInterval) {
+        previousMillis = currentMillis; // Save the last time LED was updated
+        ledState = !ledState; // Toggle LED state
+        ledcWrite(pwmChannel, ledState ? ledBrightness : 0); // Apply LED state
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
 void setup() {
   // Initialize Serial Monitor and Bluetooth Serial
   Serial.begin(115200);
@@ -76,6 +118,59 @@ void setup() {
 
   SerialBT.println("ESP32 Bluetooth LED Control Ready.");
   printMainMenu(); // Print the main menu on Bluetooth
+
+  // Create FreeRTOS tasks
+  xTaskCreatePinnedToCore(
+    bluetoothTask,   // Task function
+    "BluetoothTask", // Task name
+    2048,            // Stack size
+    NULL,            // Parameters
+    1,               // Priority
+    &bluetoothTaskHandle, // Task handle
+    0                // Core 0
+  );
+
+  xTaskCreatePinnedToCore(
+    ledTask,         // Task function
+    "LedTask",      // Task name
+    2048,            // Stack size
+    NULL,            // Parameters
+    1,               // Priority
+    &ledTaskHandle,  // Task handle
+    0                // Core 0
+  );
+}
+
+void processCommand(String command) {
+  command.trim(); // Remove any leading/trailing whitespace or newlines
+
+  if (command.length() == 1) {
+    char input = command[0]; // Get the first character of the command
+
+    // Handle input based on the current state
+    switch (currentState) {
+      case MAIN_MENU:
+        handleMainMenu(input);
+        break;
+
+      case BRIGHTNESS_MENU:
+        handleBrightnessMenu(input);
+        break;
+
+      case BLINKING_MENU:
+        handleBlinkingMenu(input);
+        break;
+
+      case EXIT:
+        SerialBT.println("Exiting...");
+        return; // Exit the program
+
+      default:
+        break;
+    }
+  } else {
+    SerialBT.println("Invalid input. Please enter a valid option.");
+  }
 }
 
 void handleMainMenu(char input) {
@@ -108,7 +203,6 @@ void handleMainMenu(char input) {
 }
 
 void handleBrightnessMenu(char input) {
-  // Declare brightness variable outside of the switch statement
   int brightness = 0;
 
   switch (input) {
@@ -116,8 +210,6 @@ void handleBrightnessMenu(char input) {
       SerialBT.print("Enter brightness (0-255): ");
       while (!SerialBT.available()); // Wait for user input
       brightness = SerialBT.parseInt();  // Get the user input here
-      Serial.print("Breightness input: ");
-      Serial.println(brightness);
       brightness = constrain(brightness, 0, 255); // Make sure it's in range
       ledBrightness = brightness;
       ledcWrite(pwmChannel, ledBrightness);
@@ -135,11 +227,8 @@ void handleBrightnessMenu(char input) {
       break;
   }
 
-  // Print the brightness menu again after handling the input
   printBrightnessMenu();
 }
-
-
 
 void handleBlinkingMenu(char input) {
   switch (input) {
@@ -174,92 +263,9 @@ void handleBlinkingMenu(char input) {
       SerialBT.println("Invalid selection.");
       break;
   }
-  printBlinkingMenu(); // Print the blinking menu again
+  printBlinkingMenu();
 }
 
 void loop() {
-    // Check if data is available from Bluetooth
-  while (SerialBT.available()) {
-    char receivedChar = SerialBT.read(); // Read one character
-
-    // Accumulate input in buffer
-    if (receivedChar == '\r' || receivedChar == '\n') {
-      // End of input detected
-      if (inputBuffer.length() > 0) {
-        // Process the full command
-        processCommand(inputBuffer);
-        inputBuffer = ""; // Clear the buffer after processing
-      }
-    } else {
-      inputBuffer += receivedChar; // Add the character to the buffer
-    }
-  }
-/*
-    // Handle input based on the current state
-    switch (currentState) {
-      case MAIN_MENU:
-        
-        handleMainMenu(receivedChar);
-        break;
-
-      case BRIGHTNESS_MENU:
-
-        handleBrightnessMenu(receivedChar);
-        break;
-
-      case BLINKING_MENU:
-        
-        handleBlinkingMenu(receivedChar);
-        break;
-
-      case EXIT:
-        SerialBT.println("Exiting...");
-        return; // Exit the program
-
-      default:
-        break;
-    }
-  }*/
-
-  // Handle blinking if enabled
-  if (blinkInterval > 0) {
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousMillis >= blinkInterval) {
-      previousMillis = currentMillis; // Save the last time LED was updated
-      ledState = !ledState; // Toggle LED state
-      ledcWrite(pwmChannel, ledState ? ledBrightness : 0); // Apply LED state
-    }
-  }
-}
-
-void processCommand(String command) {
-  command.trim(); // Remove any leading/trailing whitespace or newlines
-
-  if (command.length() == 1) {
-    char input = command[0]; // Get the first character of the command
-
-    // Handle input based on the current state
-    switch (currentState) {
-      case MAIN_MENU:
-        handleMainMenu(input);
-        break;
-
-      case BRIGHTNESS_MENU:
-        handleBrightnessMenu(input);
-        break;
-
-      case BLINKING_MENU:
-        handleBlinkingMenu(input);
-        break;
-
-      case EXIT:
-        SerialBT.println("Exiting...");
-        return; // Exit the program
-
-      default:
-        break;
-    }
-  } else {
-    SerialBT.println("Invalid input. Please enter a valid option.");
-  }
+  // Unused in FreeRTOS setup
 }
