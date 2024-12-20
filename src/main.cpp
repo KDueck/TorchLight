@@ -34,20 +34,19 @@ State currentState = MAIN_MENU; // Initial state
 void printMainMenu() {
   SerialBT.println("\nMain Menu:");
   SerialBT.println("1. Toggle LED");
-  SerialBT.println("2. Show LED Brightness");
-  SerialBT.println("3. Set LED Brightness");
-  SerialBT.println("4. Set LED Blinking Sequence");
-  SerialBT.println("5. Exit");
+  SerialBT.println("2. Set LED Brightness");
+  SerialBT.println("3. Set LED Blinking Sequence");
+  SerialBT.println("4. Exit");
   SerialBT.print("Select an option: ");
 }
 
 // Function to print the brightness submenu
 void printBrightnessMenu() {
-  SerialBT.println("\nBrightness Menu:");
-  SerialBT.println("1. Increase Brightness");
-  SerialBT.println("2. Decrease Brightness");
-  SerialBT.println("3. Set Brightness (0-255)");
-  SerialBT.println("4. Go back to Main Menu");
+  SerialBT.print("\nCurrent Brightness:");
+  SerialBT.println(ledBrightness);
+  SerialBT.println("Brightness Menu:");
+  SerialBT.println("1. Set Brightness (0-255)");
+  SerialBT.println("2. Go back to Main Menu");
   SerialBT.print("Select an option: ");
 }
 
@@ -66,6 +65,7 @@ void setup() {
   // Initialize Serial Monitor and Bluetooth Serial
   Serial.begin(115200);
   SerialBT.begin("ESP32_LED_Control"); // Start Bluetooth Serial
+  SerialBT.setTimeout(10000);
 
   // Set the LED pin as output
   pinMode(ledPin, OUTPUT);
@@ -86,22 +86,17 @@ void handleMainMenu(char input) {
       SerialBT.println(ledState ? "LED ON" : "LED OFF");
       break;
 
-    case '2': // Show LED Brightness
-      SerialBT.print("LED Brightness: ");
-      SerialBT.println(ledBrightness);
-      break;
-
-    case '3': // Set LED Brightness
+    case '2': // Set LED Brightness
       currentState = BRIGHTNESS_MENU; // Transition to brightness menu
       printBrightnessMenu(); // Display the brightness menu
       return; // Early return to avoid fall-through
 
-    case '4': // Set LED Blinking Sequence
+    case '3': // Set LED Blinking Sequence
       currentState = BLINKING_MENU; // Transition to blinking menu
       printBlinkingMenu(); // Display the blinking menu
       return; // Early return to avoid fall-through
 
-    case '5': // Exit
+    case '4': // Exit
       currentState = EXIT; // Transition to exit
       return; // Early return to avoid fall-through
 
@@ -117,24 +112,12 @@ void handleBrightnessMenu(char input) {
   int brightness = 0;
 
   switch (input) {
-    case '1': // Increase Brightness
-      ledBrightness = min(ledBrightness + 10, 255); // Increment brightness, max 255
-      ledcWrite(pwmChannel, ledBrightness);
-      SerialBT.print("Brightness Increased to: ");
-      SerialBT.println(ledBrightness);
-      break;
-
-    case '2': // Decrease Brightness
-      ledBrightness = max(ledBrightness - 10, 0); // Decrement brightness, min 0
-      ledcWrite(pwmChannel, ledBrightness);
-      SerialBT.print("Brightness Decreased to: ");
-      SerialBT.println(ledBrightness);
-      break;
-
-    case '3': // Set Brightness manually
+    case '1': // Set Brightness manually
       SerialBT.print("Enter brightness (0-255): ");
       while (!SerialBT.available()); // Wait for user input
       brightness = SerialBT.parseInt();  // Get the user input here
+      Serial.print("Breightness input: ");
+      Serial.println(brightness);
       brightness = constrain(brightness, 0, 255); // Make sure it's in range
       ledBrightness = brightness;
       ledcWrite(pwmChannel, ledBrightness);
@@ -142,7 +125,7 @@ void handleBrightnessMenu(char input) {
       SerialBT.println(ledBrightness);
       break;
 
-    case '4': // Go back to Main Menu
+    case '2': // Go back to Main Menu
       currentState = MAIN_MENU; // Transition back to main menu
       printMainMenu(); // Display the main menu
       return; // Early return to avoid fall-through
